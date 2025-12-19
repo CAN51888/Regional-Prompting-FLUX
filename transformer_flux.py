@@ -496,6 +496,9 @@ class FluxTransformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrig
             If `return_dict` is True, an [`~models.transformer_2d.Transformer2DModelOutput`] is returned, otherwise a
             `tuple` where the first element is the sample tensor.
         """
+        if joint_attention_kwargs is None:
+            joint_attention_kwargs = {}
+
         if joint_attention_kwargs is not None:
             joint_attention_kwargs = joint_attention_kwargs.copy()
             lora_scale = joint_attention_kwargs.pop("scale", 1.0)
@@ -525,7 +528,13 @@ class FluxTransformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrig
 
         # prepare additional kwargs for regional control
         additional_kwargs = {}
-        additional_kwargs["regional_attention_mask"] = joint_attention_kwargs['regional_attention_mask']
+
+        regional_attention_mask = joint_attention_kwargs.get("regional_attention_mask", None)
+        if regional_attention_mask is not None:
+            additional_kwargs["regional_attention_mask"] = regional_attention_mask
+
+        # additional_kwargs = {}
+        # additional_kwargs["regional_attention_mask"] = joint_attention_kwargs['regional_attention_mask']
         additional_kwargs["hidden_seq_len"] = hidden_states.shape[1]
         # when using controlnet, only one prompt is provided, so we need to consider the case
         if encoder_hidden_states_base is not None:  
@@ -539,7 +548,10 @@ class FluxTransformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrig
         encoder_hidden_states = self.context_embedder(encoder_hidden_states)
         additional_kwargs["encoder_seq_len"] = encoder_hidden_states.shape[1]
         
-
+        double_interval = joint_attention_kwargs.get(
+            "double_inject_blocks_interval",
+            len(self.transformer_blocks),  # 默认值：用所有 block
+        )
         if txt_ids.ndim == 3:
             logger.warning(
                 "Passing `txt_ids` 3d torch.Tensor is deprecated."
@@ -586,7 +598,17 @@ class FluxTransformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrig
                 )
 
             else:
-                encoder_hidden_states, hidden_states, encoder_hidden_states_base = block(
+                # encoder_hidden_states, hidden_states, encoder_hidden_states_base = block(
+                #     hidden_states=hidden_states,
+                #     encoder_hidden_states=encoder_hidden_states,
+                #     encoder_hidden_states_base=encoder_hidden_states_base,
+                #     base_ratio=base_ratio,
+                #     temb=temb,
+                #     image_rotary_emb=image_rotary_emb,
+                #     image_rotary_emb_base=image_rotary_emb_base,
+                #     additional_kwargs=additional_kwargs if index_block % double_interval == 0 else {k: v for k, v in additional_kwargs.items() if k != 'regional_attention_mask'}, # delete attention mask to avoid region control
+                # )
+                block_out = block(
                     hidden_states=hidden_states,
                     encoder_hidden_states=encoder_hidden_states,
                     encoder_hidden_states_base=encoder_hidden_states_base,
@@ -594,8 +616,22 @@ class FluxTransformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrig
                     temb=temb,
                     image_rotary_emb=image_rotary_emb,
                     image_rotary_emb_base=image_rotary_emb_base,
-                    additional_kwargs=additional_kwargs if index_block % joint_attention_kwargs['double_inject_blocks_interval'] == 0 else {k: v for k, v in additional_kwargs.items() if k != 'regional_attention_mask'}, # delete attention mask to avoid region control
+                    additional_kwargs=additional_kwargs if index_block % double_interval == 0 else {k: v for k, v in additional_kwargs.items() if k != 'regional_attention_mask'},
                 )
+
+                if isinstance(block_out, tuple):
+                    if len(block_out) == 3:
+                        encoder_hidden_states, hidden_states, encoder_hidden_states_base = block_out
+                    elif len(block_out) == 2:
+                        encoder_hidden_states, hidden_states = block_out
+                        # encoder_hidden_states_base 保持原值
+                    else:
+                        raise RuntimeError(
+                            f"Unexpected number of outputs from transformer block: {len(block_out)}"
+                        )
+                else:
+                    # 极端情况：只返回 hidden_states
+                    hidden_states = block_out
 
             # controlnet residual
             if controlnet_block_samples is not None:

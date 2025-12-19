@@ -14,7 +14,7 @@
 
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Union
-
+import torch.nn.functional as F
 import numpy as np
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer, T5EncoderModel, T5TokenizerFast
@@ -313,7 +313,7 @@ class RegionalFluxAttnProcessor2_0:
 
             else: # both regional and base input are base prompts, skip the merge
                 return hidden_states, hidden_states
-        
+
 
 class RegionalFluxPipeline(FluxPipeline):   
     
@@ -390,16 +390,42 @@ class RegionalFluxPipeline(FluxPipeline):
         masks = []
         H, W = height//(self.vae_scale_factor), width//(self.vae_scale_factor)
         hidden_seq_len = H * W
+        # for mask, cond in regional_inputs:
+        #     if mask is not None: # resize regional masks to image size, the flatten is to match the seq len
+        #         #
+        #         mask = torch.nn.functional.interpolate(mask[None, None, :, :], (H, W), mode='nearest-exact').flatten().unsqueeze(1).repeat(1, cond.size(1))
+        #     else:
+        #         mask = torch.ones((H*W, cond.size(1))).to(device=cond.device)
+        #     masks.append(mask)
+        #     conds.append(cond)
+        # regional_embeds = torch.cat(conds, dim=1)
+        # encoder_seq_len = regional_embeds.shape[1]
         for mask, cond in regional_inputs:
-            if mask is not None: # resize regional masks to image size, the flatten is to match the seq len
-                mask = torch.nn.functional.interpolate(mask[None, None, :, :], (H, W), mode='nearest-exact').flatten().unsqueeze(1).repeat(1, cond.size(1))
+            if mask is not None:  # resize regional masks to image size, the flatten is to match the seq len
+                # mask: (h, w) or (H, W) -> (H, W)
+                mask = mask.to(device=cond.device)
+                if mask.shape[0] != H or mask.shape[1] != W:
+                    mask = F.interpolate(
+                        mask[None, None, :, :],  # (1,1,h,w)
+                        (H, W),
+                        mode="nearest-exact",
+                    )[0, 0]                               # (H, W)
+
+                # (H*W, 1)
+                mask = mask.flatten().unsqueeze(1)
+
+                # 关键：用 expand 而不是 repeat，shape 仍然是 (H*W, cond.size(1))
+                mask = mask.expand(-1, cond.size(1))
             else:
-                mask = torch.ones((H*W, cond.size(1))).to(device=cond.device)
+                # 先建一个 (H*W, 1) 的 ones，再 expand，不再真实分配 (H*W, C) 的内存
+                ones = torch.ones(H * W, 1, device=cond.device, dtype=cond.dtype)
+                mask = ones.expand(-1, cond.size(1))
+
             masks.append(mask)
             conds.append(cond)
+
         regional_embeds = torch.cat(conds, dim=1)
         encoder_seq_len = regional_embeds.shape[1]
-
         # initialize attention mask
         regional_attention_mask = torch.zeros(
             (encoder_seq_len + hidden_seq_len, encoder_seq_len + hidden_seq_len),

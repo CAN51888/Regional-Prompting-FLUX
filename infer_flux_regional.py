@@ -7,8 +7,24 @@ import torch
 from pipeline_flux_regional import RegionalFluxPipeline, RegionalFluxAttnProcessor2_0
 from pipeline_flux_controlnet_regional import RegionalFluxControlNetPipeline
 from diffusers import FluxControlNetModel, FluxMultiControlNetModel
+from mask import masks_dict
+import mask
+import gc
+import torch
+
 
 if __name__ == "__main__":
+        # 如果 mask.py 里面创建了 base_pipe，清掉它
+    if hasattr(mask, "base_pipe"):
+        try:
+            mask.base_pipe.to("cpu")
+        except Exception:
+            pass
+        del mask.base_pipe
+
+    gc.collect()
+    torch.cuda.empty_cache()
+
     
     model_path = "black-forest-labs/FLUX.1-dev"
     
@@ -26,8 +42,8 @@ if __name__ == "__main__":
     
     if use_lora:
         # READ https://huggingface.co/Shakker-Labs/FLUX.1-dev-LoRA-Children-Simple-Sketch for detailed usage tutorial
-        pipeline.load_lora_weights("Shakker-Labs/FLUX.1-dev-LoRA-Children-Simple-Sketch", weight_name="FLUX-dev-lora-children-simple-sketch.safetensors")
-        # pipeline.load_lora_weights("Keltezaa/emma-watson-face-flux-sdxl", weight_name="Emma_Watson_boy40.safetensors")
+        # pipeline.load_lora_weights("Shakker-Labs/FLUX.1-dev-LoRA-Children-Simple-Sketch", weight_name="FLUX-dev-lora-children-simple-sketch.safetensors")
+        pipeline.load_lora_weights("Keltezaa/emma-watson-face-flux-sdxl", weight_name="Emma_Watson_boy40.safetensors")
     
     attn_procs = {}
     for name in pipeline.transformer.attn_processors.keys():
@@ -37,84 +53,29 @@ if __name__ == "__main__":
             attn_procs[name] = pipeline.transformer.attn_processors[name]
     pipeline.transformer.set_attn_processor(attn_procs)
 
-    ## generation settings
-    
-    # example regional prompt and mask pairs
-    # image_width = 1280
-    # image_height = 768
-    # num_samples = 1
-    # num_inference_steps = 24
-    # guidance_scale = 3.5
-    # seed = 124
-    # base_prompt = "An ancient woman stands solemnly holding a blazing torch, while a fierce battle rages in the background, capturing both strength and tragedy in a historical war scene."
-    # background_prompt = "a photo"
-    # regional_prompt_mask_pairs = {
-    #     "0": {
-    #         "description": "A dignified woman in ancient robes stands in the foreground, her face illuminated by the torch she holds high. Her expression is one of determination and sorrow, her clothing and appearance reflecting the historical period. The torch casts dramatic shadows across her features, its flames dancing vibrantly against the darkness.",
-    #         "mask": [128, 128, 640, 768]
-    #     }
-    # }
-    # # region control settings
-    # mask_inject_steps = 10
-    # double_inject_blocks_interval = 1
-    # single_inject_blocks_interval = 1
-    # base_ratio = 0.3
-
-    # example input with controlnet enabled
-    # image_width = 1280
-    # image_height = 968
-    # num_samples = 1
-    # num_inference_steps = 24
-    # guidance_scale = 3.5
-    # seed = 124
-    # base_prompt = "Three high-performance sports cars, red, blue, and yellow, are racing side by side on a city street"
-    # background_prompt = "city street" # needed if regional masks don't cover the whole image
-    # regional_prompt_mask_pairs = {
-    #         "0": {
-    #             "description": "A sleek red sports car in the lead position, with aggressive aerodynamic styling and gleaming paint that catches the light. The car appears to be moving at high speed with motion blur effects.",
-    #             "mask": [0, 0, 426, 968]
-    #         },
-    #         "1": {
-    #             "description": "A powerful blue sports car in the middle position, neck-and-neck with its competitors. Its metallic paint shimmers as it races forward, with visible speed lines and dynamic movement.",
-    #             "mask": [426, 0, 853, 968]
-    #         },
-    #         "2": {
-    #             "description": "A striking yellow sports car in the third position, its bold color standing out against the street. The car's aggressive stance and aerodynamic profile emphasize its racing performance.",
-    #             "mask": [853, 0, 1280, 968]
-    #         }
-    # }
-
-    # ## controlnet settings
-    # if use_controlnet:
-    #     control_image = [Image.open("./assets/condition_depth.png")]
-    #     control_mode = [2] # (2) stands for depth control
-    #     controlnet_conditioning_scale = [0.7]
-    ## region control settings
-    # mask_inject_steps = 10
-    # double_inject_blocks_interval = 1 # 1 for full blocks
-    # single_inject_blocks_interval = 2 # 1 for full blocks
-    # base_ratio = 0.2
-
 
     # example input with lora enabled
-    image_width = 1280
-    image_height = 1280
+    image_width = 512
+    image_height = 512
     num_samples = 1
     num_inference_steps = 24
     guidance_scale = 3.5
     seed = 124
     # base_prompt = "Sketched style: A cute dinosaur playfully blowing tiny fire puffs over a cartoon city in a cheerful scene."
-    base_prompt = "Sketched style: A cute dinosaur is breathing fire, and a cute little cat is watching him curiously."
+    # base_prompt = "Sketched style: A cute dinosaur is breathing fire, and a cute little cat is watching him curiously."
+    base_prompt="a photo of <lora:emma> and <lora:harry> sitting shoulder to shoulder by the fireplace,face lit by its worm glow, detailed, photorealistic"
     background_prompt = "white background"
     regional_prompt_mask_pairs = {
         "0": {
-            "description": "Sketched style: dinosaur with round eyes and a mischievous smile, puffing small flames.",
-            "mask": [0, 0, 640, 1280]
+            # "description": "Sketched style: dinosaur with round eyes and a mischievous smile, puffing small flames.",
+            "description":"a photo of <lora:emma> sitting by the fireplace, shoulder to shoulder with <lora:harry>, her face softly lit by the warm glow of the fire, detailed, photorealistic, focus on <lora:emma>'s face and expression",
+            "mask":  masks_dict['emma']  #[0, 0, 640, 1280]
         },
         "1": {
             # "description": "Sketched style: city with colorful buildings and tiny flames gently floating above, adding a playful touch.", 
-            "description": "Sketched style: A cute cat sitting on a rooftop, curiously watching the dinosaur.",
-            "mask": [640, 0, 1280, 1280]
+            # "description": "Sketched style: A cute cat sitting on a rooftop, curiously watching the dinosaur.",
+            "description":"a photo of <lora:harry> sitting by the fireplace, shoulder to shoulder with <lora:emma>, his face softly lit by the warm glow of the fire, detailed, photorealistic, focus on <lora:harry>'s face and expression",
+            "mask":  masks_dict['harry']#[640, 0, 1280, 1280]
         }
     }
     ## lora settings
@@ -138,10 +99,10 @@ if __name__ == "__main__":
     for region_idx, region in regional_prompt_mask_pairs.items():
         description = region['description']
         mask = region['mask']
-        x1, y1, x2, y2 = mask
-
-        mask = torch.zeros((image_height, image_width))
-        mask[y1:y2, x1:x2] = 1.0
+        # x1, y1, x2, y2 = mask
+        mask = mask.to(dtype=torch.bool, device="cpu") 
+        # mask = torch.zeros((image_height, image_width))
+        # mask[y1:y2, x1:x2] = 1.0
 
         background_mask -= mask
 
@@ -161,22 +122,7 @@ if __name__ == "__main__":
         'single_inject_blocks_interval': single_inject_blocks_interval,
         'base_ratio': base_ratio,
     }
-    # generate images
-    # if use_controlnet:
-    #     images = pipeline(
-    #         prompt=base_prompt,
-    #         num_samples=num_samples,
-    #         width=image_width, height=image_height,
-    #         mask_inject_steps=mask_inject_steps,
-    #         control_image=control_image,
-    #         control_mode=control_mode,
-    #         controlnet_conditioning_scale=controlnet_conditioning_scale,
-    #         guidance_scale=guidance_scale,
-    #         num_inference_steps=num_inference_steps,
-    #         generator=torch.Generator("cuda").manual_seed(seed),
-    #         joint_attention_kwargs=joint_attention_kwargs,
-    #     ).images
-    # else:
+
     images = pipeline(
         prompt=base_prompt,
         num_samples=num_samples,
