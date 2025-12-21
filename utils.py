@@ -281,7 +281,10 @@ def find_lora_tag_positions(text_ids_1, tokenizer, activation_words):
             print(f"[DEBUG] {name} positions (from lora tag only) =", S_dict[name])
 
         return S_dict
-
+def downsample_mask_to_latent_avgpool_stride(mask_img, s=8, threshold=0.5):
+    m = (mask_img.float() / 255.0) if mask_img.dtype == torch.uint8 else mask_img.float()
+    p = F.avg_pool2d(m[None, None], kernel_size=s, stride=s)[0, 0]  # [H_lat,W_lat]
+    return (p >= threshold)
 def compute_lora_masks_from_attn_single_layer(
     cross_attn: torch.Tensor,
     self_attn: torch.Tensor,
@@ -464,4 +467,15 @@ def compute_lora_masks_from_attn_single_layer(
         if name not in masks_dict:
             masks_dict[name] = torch.zeros(H_img, W_img, device=device)
 
-    return masks_dict
+    # return masks_dict
+    masks_latent = {}
+    for name, Mi_img in masks_dict.items():
+        Mi_lat = downsample_mask_to_latent_avgpool_stride(
+            Mi_img.to(device=device),   # device 对齐
+        # 建议先用 0.3（更不容易丢区域）
+            s=16,
+            threshold=0.3,      
+        )
+        masks_latent[name] = Mi_lat  # bool [H_latent, W_latent]
+
+    return masks_latent

@@ -1,4 +1,5 @@
 import torch
+import os
 import numpy as np
 from diffusers.pipelines.flux.pipeline_flux import FluxPipeline
 from utils import AttnRecorder
@@ -60,7 +61,7 @@ activation_words = {
 H_img, W_img = image_rough_np.shape[:2]
 H_latent = H_img // base_pipe.vae_scale_factor
 W_latent = W_img // base_pipe.vae_scale_factor
-
+print("Image size:", (H_img, W_img), "Latent size:", (H_latent, W_latent))
 masks_dict_cpu = compute_lora_masks_from_attn_single_layer(
     cross_attn=cross,              # CPU tensor
     self_attn=selfa,               # CPU tensor
@@ -75,3 +76,10 @@ masks_dict_cpu = compute_lora_masks_from_attn_single_layer(
 
 masks_dict = {k: v.to(device) for k, v in masks_dict_cpu.items()}
 print("Computed LoRA masks for regions:", masks_dict)
+
+save_path = "lora_region_masks.pt"
+os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+
+# masks_dict_cpu: Dict[str, Tensor]
+torch.save(masks_dict, save_path)
+print(f"Saved masks to: {save_path}")

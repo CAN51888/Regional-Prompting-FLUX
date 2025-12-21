@@ -389,6 +389,7 @@ class RegionalFluxPipeline(FluxPipeline):
         conds = []
         masks = []
         H, W = height//(self.vae_scale_factor), width//(self.vae_scale_factor)
+        print("self.vae_scale_factor =", self.vae_scale_factor)
         hidden_seq_len = H * W
         # for mask, cond in regional_inputs:
         #     if mask is not None: # resize regional masks to image size, the flatten is to match the seq len
@@ -404,6 +405,8 @@ class RegionalFluxPipeline(FluxPipeline):
             if mask is not None:  # resize regional masks to image size, the flatten is to match the seq len
                 # mask: (h, w) or (H, W) -> (H, W)
                 mask = mask.to(device=cond.device)
+                print("mask.shape =", tuple(mask.shape), "H,W =", (H, W), "cond.shape =", tuple(cond.shape))
+
                 if mask.shape[0] != H or mask.shape[1] != W:
                     mask = F.interpolate(
                         mask[None, None, :, :],  # (1,1,h,w)

@@ -7,23 +7,23 @@ import torch
 from pipeline_flux_regional import RegionalFluxPipeline, RegionalFluxAttnProcessor2_0
 from pipeline_flux_controlnet_regional import RegionalFluxControlNetPipeline
 from diffusers import FluxControlNetModel, FluxMultiControlNetModel
-from mask import masks_dict
-import mask
+# from mask import masks_dict
+# import mask
 import gc
 import torch
 
 
 if __name__ == "__main__":
         # 如果 mask.py 里面创建了 base_pipe，清掉它
-    if hasattr(mask, "base_pipe"):
-        try:
-            mask.base_pipe.to("cpu")
-        except Exception:
-            pass
-        del mask.base_pipe
+    # if hasattr(mask, "base_pipe"):
+    #     try:
+    #         mask.base_pipe.to("cpu")
+    #     except Exception:
+    #         pass
+    #     del mask.base_pipe
 
-    gc.collect()
-    torch.cuda.empty_cache()
+    # gc.collect()
+    # torch.cuda.empty_cache()
 
     
     model_path = "black-forest-labs/FLUX.1-dev"
@@ -53,7 +53,8 @@ if __name__ == "__main__":
             attn_procs[name] = pipeline.transformer.attn_processors[name]
     pipeline.transformer.set_attn_processor(attn_procs)
 
-
+    masks_dict = torch.load("lora_region_masks.pt")  # load from mask.py output
+    # masks_dict = {k: v.to("cpu") for k, v in mask.items}
     # example input with lora enabled
     image_width = 512
     image_height = 512
@@ -94,17 +95,18 @@ if __name__ == "__main__":
 
     regional_prompts = []
     regional_masks = []
-    background_mask = torch.ones((image_height, image_width))
+    background_mask = torch.zeros((image_height, image_width))
 
     for region_idx, region in regional_prompt_mask_pairs.items():
         description = region['description']
         mask = region['mask']
         # x1, y1, x2, y2 = mask
-        mask = mask.to(dtype=torch.bool, device="cpu") 
+        mask = mask.to(dtype=torch.int, device="cpu") 
+        print("Original mask shape:", tuple(mask.shape))
         # mask = torch.zeros((image_height, image_width))
         # mask[y1:y2, x1:x2] = 1.0
 
-        background_mask -= mask
+        # background_mask -= mask
 
         regional_prompts.append(description)
         regional_masks.append(mask)
